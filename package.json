@@ -1,0 +1,14 @@
+{
+  "name": "geofencing-lorawan",
+  "version": "1.0.0",
+  "description": "Geofencing-LoRaWAN-Demo: Überwachung eines Patienten in einer Zone, Alarme auf dem Bildschirm, per Ton und per SMS",
+  "private": true,
+  "scripts": {
+    "setup": "node setup.js",
+    "start": "node start.js",
+    "sms-proxy": "node tools/sms-proxy.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

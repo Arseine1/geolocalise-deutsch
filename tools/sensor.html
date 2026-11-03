@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Simuliertes Gerät – Sensor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap">
+  <!-- Leaflet 1.9.4 (gleiche Version und gleiche Integrität wie die Hauptseite) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous">
+  <!-- Verwendet das Design der Hauptseite wieder (Chat, Schaltflächen, Abzeichen) -->
+  <link rel="stylesheet" href="../web/style.css?v=19">
+  <style>
+    .cols { max-width: 1040px; margin: 0 auto; padding: 12px 16px; display: grid; grid-template-columns: minmax(280px, 380px) 1fr; gap: 12px; align-items: start; }
+    .cols > div { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+    @media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+    .btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .btn-in { background: var(--green); }
+    .btn-out { background: var(--red); }
+    .coords { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; }
+    .coords input { width: 100%; }
+    .pad { display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 44px); gap: 6px; justify-content: center; margin-top: 10px; }
+    .pad button { padding: 0; font-size: 18px; }
+    .pad .up { grid-column: 2; grid-row: 1; } .pad .left { grid-column: 1; grid-row: 2; }
+    .pad .right { grid-column: 3; grid-row: 2; } .pad .down { grid-column: 2; grid-row: 3; }
+    .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 8px; }
+    #hint403 { border-left: 4px solid #f2c14e; padding-left: 10px; margin-top: 10px; }
+    #hint403[hidden] { display: none; }
+    #chat-box { height: 360px; }
+    #map-c { height: 280px; border-radius: 10px; border: 1px solid var(--border); overflow: hidden; z-index: 0; }
+    .zone-state { display: inline-block; margin-top: 8px; padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; color: #fff; background: #6b7280; }
+    .zone-state.in { background: var(--green); }
+    .zone-state.out { background: var(--red); }
+    .link { color: inherit; opacity: .85; font-size: 14px; margin-left: auto; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Simuliertes Gerät (Sensor)</h1>
+    <span id="badge" class="badge badge-off">bereit</span>
+    <a class="link" href="../web/" target="_blank" rel="noopener">Hauptoberfläche öffnen</a>
+  </header>
+
+  <div class="cols">
+    <div>
+      <section>
+        <h2>Karte</h2>
+        <div id="map-c" role="application" aria-label="Karte: Position des simulierten Geräts"></div>
+        <span id="zone-state" class="zone-state">Position unbekannt</span>
+        <p class="hint">Klicken Sie auf die Karte oder ziehen Sie die Markierung, um das Gerät zu bewegen, und klicken Sie dann auf „Position senden“.</p>
+      </section>
+
+      <section>
+        <h2>GPS-Position</h2>
+        <p class="hint">Jeder Versand geht an <b>The Things Stack</b> (simulierter Uplink, FPort 1) und kommt dann über den Ereignisstrom auf der Hauptoberfläche an, wie beim echten Gerät.</p>
+        <div class="coords">
+          <label for="f-lat">Breitengrad</label><input id="f-lat" type="number" step="0.000001" value="48.8566">
+          <label for="f-lng">Längengrad</label><input id="f-lng" type="number" step="0.000001" value="2.3522">
+        </div>
+        <div class="btns">
+          <button id="btn-send-pos" type="button">Position senden</button>
+          <button id="btn-in" class="btn-in" type="button">In der Zone</button>
+          <button id="btn-out" class="btn-out" type="button">Außerhalb der Zone</button>
+        </div>
+        <div class="pad" role="group" aria-label="Gerät bewegen">
+          <button id="mv-n" class="up" type="button" aria-label="Nach Norden">&uarr;</button>
+          <button id="mv-w" class="left" type="button" aria-label="Nach Westen">&larr;</button>
+          <button id="mv-e" class="right" type="button" aria-label="Nach Osten">&rarr;</button>
+          <button id="mv-s" class="down" type="button" aria-label="Nach Süden">&darr;</button>
+        </div>
+        <div class="row">
+          <label for="f-step">Schritt</label>
+          <select id="f-step"><option value="20">20 m</option><option value="100" selected>100 m</option><option value="500">500 m</option></select>
+          <label class="check"><input id="c-move" type="checkbox" checked><span>Nach jeder Bewegung automatisch senden (Karte und Pfeile)</span></label>
+        </div>
+        <div class="row">
+          <label class="check"><input id="c-auto" type="checkbox"><span>Position alle 30 s senden (wie das echte Gerät)</span></label>
+        </div>
+      </section>
+
+      <section>
+        <h2>Ziel</h2>
+        <dl>
+          <dt>Device</dt><dd id="i-dev"></dd>
+          <dt>Zone</dt><dd id="i-zone"></dd>
+        </dl>
+      </section>
+    </div>
+
+    <div>
+      <section>
+        <h2>Nachrichten</h2>
+        <p id="notif" class="hint" aria-live="polite">Wie das echte Gerät: Es hat weder Tastatur noch Bildschirm. Es <b>empfängt</b> die Nachrichten der Seite (Text in Sprache umgewandelt, oder Sprachnachricht) und <b>sendet</b> nur Sprachnachrichten, mit dem Mikrofon.</p>
+        <div class="wa-card">
+          <div class="wa-head">
+            <span class="wa-avatar" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zm0 2.25c-3.2 0-9 1.6-9 4.8V21h18v-1.95c0-3.2-5.8-4.8-9-4.8z"/></svg></span>
+            <div><strong>Angehöriger / Pflegekraft</strong><p id="chat-status" class="hint">Verbindung zum Relay …</p></div>
+          </div>
+          <div id="chat-box" class="chat" role="log" aria-live="polite" aria-label="Nachrichten des Geräts"><p class="chat-empty">Keine Nachricht.</p></div>
+          <div class="wa-bar">
+            <span id="wa-hint" class="wa-hint">Auf das Mikrofon klicken, sprechen (höchstens 10 s), zum Senden erneut klicken</span>
+            <div id="rec-info" class="wa-rec-info" hidden><span class="wa-dot"></span><span id="rec-timer" class="voice-timer">0:00</span><span class="wa-slide">Sprechen, dann erneut klicken (höchstens 10 s)</span></div>
+            <button id="t-rec" type="button" class="talk wa-mic" aria-label="Sprachnachricht für die Seite aufnehmen"><svg class="ico" viewBox="0 0 24 24"><path d="M12 14.5a3.5 3.5 0 0 0 3.5-3.5V5.5a3.5 3.5 0 0 0-7 0V11a3.5 3.5 0 0 0 3.5 3.5zm6-3.5a6 6 0 0 1-12 0H4.5a7.5 7.5 0 0 0 6.75 7.46V21h1.5v-2.54A7.5 7.5 0 0 0 19.5 11z"/></svg></button>
+          </div>
+        </div>
+        <label class="check" style="margin-top:12px"><input id="c-say" type="checkbox" checked><span>Von der Seite empfangene Nachrichten automatisch vorlesen (Text in Sprache umgewandelt, Sprachnachrichten abgespielt) und dann die Lesebestätigung senden</span></label>
+      </section>
+
+      <section>
+        <h2>Protokoll</h2>
+        <div id="hint403" hidden>
+          <strong>Fehler 403: Der API-Schlüssel hat nicht die nötigen Rechte.</strong><br>
+          Console &gt; Applications &gt; <b>myfirst1</b> &gt; API keys &gt; <b>geofence-web</b> &gt; <i>Edit</i> und haken Sie dann <b>Write uplink application traffic</b> an.
+        </div>
+        <ol id="log"></ol>
+      </section>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
+  <script src="../web/config.js"></script>
+  <script>
+  (function () {
+    "use strict";
+
+    const $ = (id) => document.getElementById(id);
+    const cfg = window.CONFIG;
+    const PORT_POSITION = 1, PORT_ACK = 3;   // Uplinks: Position, Lesebestätigung eines Textes (das Gerät sendet nie Text)
+    const RADIO = { data_rate: { lora: { bandwidth: 125000, spreading_factor: 7, coding_rate: "4/5" } }, frequency: "868100000" };   // simulierte EU868-Datenrate
+    const AUTO_MS = 30000;                   // gleicher Takt wie das echte Gerät
+
+    function log(message, level) {
+      const li = document.createElement("li"), t = document.createElement("span"), m = document.createElement("span");
+      t.className = "t"; t.textContent = new Date().toLocaleTimeString("de-DE");
+      m.className = level || ""; m.textContent = message;
+      li.append(t, m);
+      $("log").prepend(li);
+    }
+    function setBadge(text, kind) { $("badge").textContent = text; $("badge").className = "badge badge-" + (kind || "off"); }
+    function setStatus(text, level) { const e = $("chat-status"); e.textContent = text; e.className = "hint " + (level === "ok" ? "sms-ok" : level === "err" ? "sms-off" : ""); }
+
+    if (!cfg) { setBadge("config.js nicht gefunden", "err"); log("../web/config.js fehlt: Legen Sie sie an (siehe web/config.js).", "err"); return; }
+
+    const SIM_URL = new URL(cfg.DOWNLINK_URL).origin + "/api/v3/as/applications/" + cfg.APP_ID + "/devices/" + cfg.DEVICE_ID + "/up/simulate";
+    $("i-dev").textContent = cfg.APP_ID + " / " + cfg.DEVICE_ID;
+
+    // ---------- Zone (die der Hauptoberfläche, sonst config.js) ----------
+    const validPoint = (a) => Array.isArray(a) && Number.isFinite(a[0]) && Number.isFinite(a[1]) && Math.abs(a[0]) <= 90 && Math.abs(a[1]) <= 180;
+    function loadZone() {
+      try {
+        const s = JSON.parse(localStorage.getItem("geofence-zone-v1") || "null");   // gleicher Schlüssel wie in web/app.js
+        if (s && Array.isArray(s.points) && s.points.length >= 3 && s.points.every(validPoint)) return { points: s.points, auto: s.auto !== false, source: "im Browser gespeichert" };
+      } catch (e) { /* Speicher nicht verfügbar: config.js */ }
+      if (Array.isArray(cfg.DEFAULT_ZONE) && cfg.DEFAULT_ZONE.length >= 3 && cfg.DEFAULT_ZONE.every(validPoint)) return { points: cfg.DEFAULT_ZONE, auto: true, source: "config.js (DEFAULT_ZONE)" };
+      return null;
+    }
+    const centroidOf = (pts) => ({ lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length, lng: pts.reduce((s, p) => s + p.lng, 0) / pts.length });
+    const zone = loadZone();
+    let ring = [];
+    if (zone) {
+      ring = zone.points.map((a) => ({ lat: a[0], lng: a[1] }));
+      if (zone.auto && ring.length >= 4) {
+        const c = centroidOf(ring), k = Math.cos(c.lat * Math.PI / 180);
+        ring.sort((a, b) => Math.atan2(a.lat - c.lat, (a.lng - c.lng) * k) - Math.atan2(b.lat - c.lat, (b.lng - c.lng) * k));
+      }
+      $("i-zone").textContent = ring.length + " Punkte (" + zone.source + ")";
+    } else {
+      $("i-zone").textContent = "keine (Schaltflächen „in / außerhalb der Zone“ inaktiv)";
+      $("btn-in").disabled = true; $("btn-out").disabled = true;
+    }
+    function insideZone(p) {
+      let inside = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const a = ring[i], b = ring[j];
+        if ((a.lat > p.lat) !== (b.lat > p.lat) && p.lng < (b.lng - a.lng) * (p.lat - a.lat) / (b.lat - a.lat) + a.lng) inside = !inside;
+      }
+      return inside;
+    }
+    function pointInside() {
+      const c = centroidOf(ring);
+      if (insideZone(c)) return c;
+      const lats = ring.map((p) => p.lat), lngs = ring.map((p) => p.lng);
+      const minLat = Math.min(...lats), maxLat = Math.max(...lats), minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+      let best = null, bestD = Infinity;
+      for (let i = 0; i <= 40; i++) for (let j = 0; j <= 40; j++) {
+        const p = { lat: minLat + (maxLat - minLat) * i / 40, lng: minLng + (maxLng - minLng) * j / 40 };
+        const d = Math.hypot(p.lat - c.lat, p.lng - c.lng);
+        if (d < bestD && insideZone(p)) { best = p; bestD = d; }
+      }
+      return best || c;
+    }
+    function pointOutside() {
+      const c = pointInside(), lngs = ring.map((p) => p.lng);
+      const maxLng = Math.max(...lngs), width = maxLng - Math.min(...lngs);
+      return { lat: c.lat, lng: maxLng + Math.max(width * 0.5, 0.002) };
+    }
+    if (zone) { const s = pointInside(); $("f-lat").value = s.lat.toFixed(6); $("f-lng").value = s.lng.toFixed(6); }
+
+    // ---------- Versand eines simulierten Uplinks an TTN ----------
+    const b64 = (bytes) => btoa(String.fromCharCode.apply(null, bytes));
+    /** Gibt { ok, status, detail } zurück. `bytes` = rohe Nutzlast; TTN wendet den Decoder des Geräts an. */
+    async function sendUplink(port, bytes, what) {
+      if (!cfg.API_KEY || cfg.API_KEY === "TA-CLE-API") {
+        log("Der API-Schlüssel ist noch TA-CLE-API: Ersetzen Sie ihn in web/config.js.", "err");
+        setBadge("API-Schlüssel fehlt", "err");
+        return { ok: false, detail: "API-Schlüssel fehlt" };
+      }
+      $("hint403").hidden = true;
+      const hex = bytes.map((b) => b.toString(16).padStart(2, "0")).join("").toUpperCase();
+      log("Versand an TTN: " + what + " (FPort " + port + ", hex " + hex + ")", "");
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 15000);
+      try {
+        const r = await fetch(SIM_URL, {
+          method: "POST",
+          headers: { "Authorization": "Bearer " + cfg.API_KEY, "Content-Type": "application/json" },
+          // `settings` ist für TTN Pflicht (sonst 400 „settings: value is required“)
+          body: JSON.stringify({ uplink_message: { f_port: port, frm_payload: b64(bytes), settings: RADIO } }),
+          signal: ctrl.signal
+        });
+        let detail = "";
+        if (!r.ok) { try { detail = (await r.text()).slice(0, 250); } catch (e) { /* Antworttext unlesbar */ } }
+        log("HTTP " + r.status + " " + r.statusText + (detail ? " - " + detail : ""), r.ok ? "ok" : "err");
+        if (r.ok) { setBadge("letzter Versand OK", "ok"); return { ok: true, status: r.status }; }
+        setBadge("HTTP " + r.status, "err");
+        if (r.status === 403) $("hint403").hidden = false;
+        else if (r.status === 401) log("401: API-Schlüssel ungültig oder widerrufen.", "warn");
+        else if (r.status === 404) log("404: Prüfen Sie APP_ID, DEVICE_ID und ob das Gerät existiert.", "warn");
+        return { ok: false, status: r.status, detail: "HTTP " + r.status };
+      } catch (e) {
+        const why = e.name === "AbortError" ? "keine Antwort nach 15 s" : "Anfrage blockiert (CORS oder Netzwerk): " + e.message;
+        log(why, "err");
+        setBadge("Netzwerkfehler", "err");
+        return { ok: false, detail: why };
+      } finally { clearTimeout(timer); }
+    }
+
+    // ---------- Karte: Zone, Markierung des Geräts (zum Bewegen ziehen oder klicken) ----------
+    let map = null, marker = null, zonePoly = null;
+    function validCoordsNow() {
+      const c = { lat: parseFloat($("f-lat").value), lng: parseFloat($("f-lng").value) };
+      return Number.isFinite(c.lat) && Number.isFinite(c.lng) && Math.abs(c.lat) <= 90 && Math.abs(c.lng) <= 180 ? c : null;
+    }
+    /** Gleicht die Markierung und den Zustand „in / außerhalb der Zone“ mit den Feldern Breitengrad und Längengrad ab. */
+    function syncMap() {
+      const c = validCoordsNow();
+      const st = $("zone-state");
+      if (!c) { st.textContent = "ungültige Koordinaten"; st.className = "zone-state"; return; }
+      if (zone) {
+        const inside = insideZone(c);
+        st.textContent = inside ? "In der Zone" : "Außerhalb der Zone";
+        st.className = "zone-state " + (inside ? "in" : "out");
+        if (zonePoly) zonePoly.setStyle({ color: inside ? "#16a34a" : "#dc3545" });
+      } else { st.textContent = "keine Zone definiert"; st.className = "zone-state"; }
+      if (marker) { marker.setLatLng([c.lat, c.lng]); if (map && !map.getBounds().contains([c.lat, c.lng])) map.panTo([c.lat, c.lng]); }
+    }
+    function setFromMap(latlng) {
+      $("f-lat").value = latlng.lat.toFixed(6);
+      $("f-lng").value = latlng.lng.toFixed(6);
+      syncMap();
+      if ($("c-move").checked) sendPosition();
+    }
+    if (typeof L === "undefined") {
+      $("map-c").textContent = "Die Karte konnte nicht geladen werden (Internetverbindung?). Die Felder unten bleiben nutzbar.";
+      $("map-c").style.padding = "12px";
+    } else {
+      const c0 = validCoordsNow() || { lat: 48.8566, lng: 2.3522 };
+      map = L.map("map-c").setView([c0.lat, c0.lng], 15);
+      L.tileLayer(cfg.TILE_URL || "https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        subdomains: cfg.TILE_SUBDOMAINS !== undefined ? cfg.TILE_SUBDOMAINS : "abc",
+        attribution: cfg.TILE_ATTRIBUTION || "&copy; OpenStreetMap-Mitwirkende"
+      }).addTo(map);
+      if (zone) { zonePoly = L.polygon(ring.map((p) => [p.lat, p.lng]), { color: "#16a34a", weight: 3, fillOpacity: 0.15 }).addTo(map); map.fitBounds(zonePoly.getBounds(), { padding: [20, 20] }); }
+      marker = L.marker([c0.lat, c0.lng], { draggable: true, title: "Simuliertes Gerät: ziehen", icon: L.divIcon({ className: "sensor-icon", iconSize: [22, 22], iconAnchor: [11, 11] }) }).addTo(map);
+      marker.on("dragend", () => setFromMap(marker.getLatLng()));
+      map.on("click", (e) => setFromMap(e.latlng));
+    }
+    $("f-lat").addEventListener("change", syncMap);
+    $("f-lng").addEventListener("change", syncMap);
+
+    // ---------- Position ----------
+    function int32Bytes(v) { const d = new DataView(new ArrayBuffer(4)); d.setInt32(0, Math.round(v * 1e7), false); return Array.from(new Uint8Array(d.buffer)); }
+    function coords() { return { lat: parseFloat($("f-lat").value), lng: parseFloat($("f-lng").value) }; }
+    function sendPosition() {
+      const c = coords();
+      if (!Number.isFinite(c.lat) || !Number.isFinite(c.lng) || Math.abs(c.lat) > 90 || Math.abs(c.lng) > 180) { log("Ungültige Koordinaten: " + $("f-lat").value + ", " + $("f-lng").value, "err"); return; }
+      sendUplink(PORT_POSITION, int32Bytes(c.lat).concat(int32Bytes(c.lng)), "Position " + c.lat.toFixed(6) + ", " + c.lng.toFixed(6));
+    }
+    function move(dNorth, dEast) {
+      const c = coords();
+      if (!Number.isFinite(c.lat) || !Number.isFinite(c.lng)) return;
+      const m = Number($("f-step").value);
+      $("f-lat").value = (c.lat + dNorth * m / 111320).toFixed(6);
+      $("f-lng").value = (c.lng + dEast * m / (111320 * Math.cos(c.lat * Math.PI / 180))).toFixed(6);
+      syncMap();
+      if ($("c-move").checked) sendPosition();
+    }
+    $("btn-send-pos").addEventListener("click", sendPosition);
+    $("btn-in").addEventListener("click", () => { const p = pointInside(); $("f-lat").value = p.lat.toFixed(6); $("f-lng").value = p.lng.toFixed(6); syncMap(); sendPosition(); });
+    $("btn-out").addEventListener("click", () => { const p = pointOutside(); $("f-lat").value = p.lat.toFixed(6); $("f-lng").value = p.lng.toFixed(6); syncMap(); sendPosition(); });
+    $("mv-n").addEventListener("click", () => move(1, 0));
+    $("mv-s").addEventListener("click", () => move(-1, 0));
+    $("mv-e").addEventListener("click", () => move(0, 1));
+    $("mv-w").addEventListener("click", () => move(0, -1));
+    let autoTimer = null;
+    $("c-auto").addEventListener("change", () => {
+      clearInterval(autoTimer); autoTimer = null;
+      if ($("c-auto").checked) { sendPosition(); autoTimer = setInterval(sendPosition, AUTO_MS); log("Automatischer Positionsversand alle 30 s", ""); }
+      else log("Automatischer Versand gestoppt", "");
+    });
+
+    // ---------- Chat: Der Verlauf kommt vom Relay (er übersteht Neuladen) ----------
+    const svg = (d) => '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="' + d + '"/></svg>';
+    const I = {
+      play: svg("M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"),
+      pause: svg("M7 4.5h3.5v15H7zm6.5 0H17v15h-3.5z"),
+      tick: svg("M9.2 16.2 4.9 11.9 3.5 13.3l5.7 5.7L20.5 7.7 19.1 6.3z"),
+      ticks: svg("M1.6 13.3 7.3 19l1.4-1.4-5.7-5.7zM22.2 6.3 11.6 16.9 9.4 14.7 8 16.1l3.6 3.6L23.6 7.7zM16.7 6.3 9.9 13.1l1.4 1.4 6.8-6.8z"),
+      stop: svg("M6 6h12v12H6z"),
+      mic: svg("M12 14.5a3.5 3.5 0 0 0 3.5-3.5V5.5a3.5 3.5 0 0 0-7 0V11a3.5 3.5 0 0 0 3.5 3.5zm6-3.5a6 6 0 0 1-12 0H4.5a7.5 7.5 0 0 0 6.75 7.46V21h1.5v-2.54A7.5 7.5 0 0 0 19.5 11z")
+    };
+    const msgs = new Map();      // ID des Relays -> { id, at, from: "page"|"device", kind: "text"|"voice", text, duration, delivered, heard }
+    const urls = new Map();      // ID -> lokale Adresse des heruntergeladenen Audios
+    let playing = null;
+    const hhmm = (d) => new Date(d).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+    const clock = (s) => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
+    const seqOf = (id) => ((id - 1) % 255) + 1;    // Nummer 1 bis 255, in der Bestätigung eines Textes an die Seite zurückgegeben
+
+    function put(m) {
+      msgs.set(m.id, Object.assign(msgs.get(m.id) || {}, m));
+      render();
+    }
+    function relayFetch(path, opts) {
+      const o = Object.assign({ cache: "no-store" }, opts);
+      o.headers = Object.assign({ "X-From": "device" }, o.headers);
+      return fetch("/api/voice" + path, o);
+    }
+
+    function render() {
+      const box = $("chat-box");
+      box.textContent = "";
+      const list = Array.from(msgs.values()).sort((a, b) => a.id - b.id);
+      if (!list.length) { const p = document.createElement("p"); p.className = "chat-empty"; p.textContent = "Keine Nachricht."; box.append(p); return; }
+      for (const m of list) {
+        const mine = m.from === "device";
+        const b = document.createElement("div");
+        b.className = "bubble " + (mine ? "mine" : "theirs");
+        const time = document.createElement("span"); time.className = "bubble-time"; time.textContent = hhmm(m.at);
+        const play = document.createElement("button");
+        play.type = "button"; play.className = "bubble-play";
+        const isPlaying = playing && playing.id === m.id;
+        play.innerHTML = isPlaying ? I.pause : I.play;
+        play.setAttribute("aria-label", m.kind === "text" ? "Nachricht laut sprechen" : "Sprachnachricht anhören");
+        play.addEventListener("click", () => (m.kind === "text" ? sayText(m) : playVoice(m.id)));
+        if (m.kind === "text") {
+          // Von der Seite empfangener Text: Das Gerät hat keinen Bildschirm und spricht ihn laut aus (hier für den Test angezeigt)
+          const t = document.createElement("div"); t.className = "bubble-text"; t.textContent = m.text;
+          const meta = document.createElement("div"); meta.className = "bubble-meta bubble-meta-text";
+          const via = document.createElement("span"); via.className = "bubble-via"; via.textContent = "per LoRaWAN empfangener Text · " + (m.heard ? "laut gesprochen" : "noch nicht gesprochen");
+          meta.append(via, time);
+          const row = document.createElement("div"); row.className = "bubble-body"; row.append(play, t);
+          b.append(row, meta);
+        } else {
+          const body = document.createElement("div"); body.className = "bubble-body";
+          const wave = document.createElement("div"); wave.className = "wa-wave";
+          let seed = m.id * 9301 + 49297;
+          for (let i = 0; i < 28; i++) { seed = (seed * 9301 + 49297) % 233280; const bar = document.createElement("i"); bar.style.height = (20 + Math.round(seed / 233280 * 80)) + "%"; wave.append(bar); }
+          body.append(play, wave);
+          const meta = document.createElement("div"); meta.className = "bubble-meta";
+          const dur = document.createElement("span"); dur.className = "bubble-dur"; dur.textContent = clock(m.duration || 0);
+          if (mine) {
+            const tk = document.createElement("span"); tk.className = "ticks" + (m.heard ? " read" : ""); tk.innerHTML = m.delivered || m.heard ? I.ticks : I.tick;
+            tk.title = m.heard ? "angehört" : m.delivered ? "empfangen" : "an das Relay gesendet (WLAN)";
+            time.append(tk);
+          }
+          meta.append(dur, time);
+          b.append(body, meta);
+        }
+        box.append(b);
+      }
+      box.scrollTop = box.scrollHeight;
+    }
+
+    // ---------- Sprachnachricht vom Gerät zur Seite: Sprach-Relay des PCs (HTTP), wie das WLAN des echten Geräts. Nie über LoRaWAN. ----------
+    const MAX_MS = 10000, MIN_MS = 600;   // 10 s wie beim echten Gerät (Testphase); die Dauer wird später erhöht
+    const MIMES = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
+    let rec = null;
+    function micError(e) {
+      const n = e && e.name;
+      if (n === "NotAllowedError" || n === "SecurityError") return "Mikrofon abgelehnt: Erlauben Sie es für diese Seite (Symbol links von der Adresse in Chrome) und versuchen Sie es erneut.";
+      if (n === "NotFoundError") return "Kein Mikrofon erkannt.";
+      if (n === "NotReadableError") return "Mikrofon nicht verfügbar (von einer anderen Anwendung benutzt).";
+      return "Mikrofon nicht nutzbar: " + ((e && e.message) || e);
+    }
+    function recUi(on) {
+      $("t-rec").innerHTML = on ? I.stop : I.mic;
+      $("t-rec").classList.toggle("recording", on);
+      $("rec-info").hidden = !on;
+      $("wa-hint").hidden = on;
+    }
+    async function toggleRec() {
+      if (rec) { stopRec(); return; }
+      if (!window.isSecureContext || !navigator.mediaDevices || !window.MediaRecorder) { $("notif").textContent = "Mikrofon nicht verfügbar: Öffnen Sie diese Seite mit Chrome unter http://localhost:8080/tools/sensor.html."; return; }
+      const mime = MIMES.find((t) => MediaRecorder.isTypeSupported(t));
+      if (!mime) { $("notif").textContent = "Aufnahmeformat nicht unterstützt (nutzen Sie Chrome)."; return; }
+      const s = { chunks: [], mime: mime, t0: 0, timer: null, mr: null, stream: null };
+      rec = s;
+      try { s.stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch (e) { rec = null; $("notif").textContent = micError(e); return; }
+      s.mr = new MediaRecorder(s.stream, { mimeType: mime });
+      s.mr.ondataavailable = (e) => { if (e.data && e.data.size) s.chunks.push(e.data); };
+      s.mr.onstop = () => finishRec(s);
+      s.mr.start(250);
+      s.t0 = Date.now();
+      recUi(true);
+      s.timer = setInterval(() => {
+        const ms = Date.now() - s.t0;
+        $("rec-timer").textContent = clock(Math.min(ms, MAX_MS) / 1000);
+        if (ms >= MAX_MS) stopRec();
+      }, 100);
+    }
+    function stopRec() {
+      if (!rec || !rec.mr) return;
+      clearInterval(rec.timer);
+      if (rec.mr.state !== "inactive") rec.mr.stop();
+    }
+    async function finishRec(s) {
+      s.stream.getTracks().forEach((t) => t.stop());
+      const ms = Math.min(Date.now() - s.t0, MAX_MS);
+      rec = null; recUi(false);
+      if (ms < MIN_MS) { $("notif").textContent = "Sprachnachricht zu kurz."; return; }
+      $("t-rec").disabled = true;
+      $("notif").textContent = "Sprachnachricht wird an das Relay gesendet …";
+      try {
+        const r = await relayFetch("", { method: "POST", headers: { "Content-Type": s.mime, "X-Duration-Ms": String(ms) }, body: new Blob(s.chunks, { type: s.mime }) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || "HTTP " + r.status);
+        put({ id: j.id, at: j.at, from: "device", kind: "voice", duration: j.duration, delivered: false, heard: false });
+        log("Sprachnachricht an das Relay gesendet (" + clock(j.duration) + ")", "ok");
+        $("notif").textContent = "Sprachnachricht gesendet: Sie erscheint im Chat der Hauptoberfläche (über das WLAN-Relay, nicht über TTN).";
+      } catch (e) {
+        log("Sprachversand nicht möglich: " + e.message, "err");
+        $("notif").textContent = "Sprachnachricht nicht gesendet: " + e.message + (e.message === "Failed to fetch" ? " (Relay nicht erreichbar: Starten Sie „node start.js“ und öffnen Sie diese Seite unter http://localhost:8080)" : "");
+      } finally { $("t-rec").disabled = false; }
+    }
+    $("t-rec").addEventListener("click", toggleRec);
+
+    // ---------- Nachrichten der Seite ----------
+    // Text: per LoRaWAN angekommen (Downlink Port 4), in Sprache umgewandelt, dann Lesebestätigung als Uplink (Port 3).
+    // Sprachnachricht: Das Gerät wird per LoRaWAN benachrichtigt (Downlink Port 5), lädt das Audio per WLAN (Relay) herunter, spielt es ab und bestätigt über das Relay.
+    // Ohne echtes Gerät kommt hier kein Downlink an: Das Relay meldet jeden Versand der Seite an diese Sensor-Seite.
+    async function sayText(m) {
+      let ok = false;
+      try {
+        const r = await relayFetch("/tts?text=" + encodeURIComponent(m.text));
+        if (!r.ok) throw new Error("Synthese des Relays: HTTP " + r.status);
+        const a = new Audio(URL.createObjectURL(await r.blob()));
+        await a.play();
+        await new Promise((res) => { a.onended = res; a.onerror = res; });
+        ok = true;
+      } catch (e) {
+        if (e.name === "NotAllowedError") { $("notif").textContent = "Chrome blockiert den Ton, solange Sie nicht auf diese Seite geklickt haben: Klicken Sie auf die Wiedergabe-Schaltfläche der Nachricht."; return; }
+        if ("speechSynthesis" in window) {
+          ok = await new Promise((res) => { const u = new SpeechSynthesisUtterance(m.text); u.lang = "de-DE"; u.onend = () => res(true); u.onerror = () => res(false); speechSynthesis.speak(u); });
+        }
+        if (!ok) { log("Wiedergabe nicht möglich: " + e.message, "err"); return; }
+      }
+      if (m.heard) return;
+      put({ id: m.id, heard: true });
+      sendUplink(PORT_ACK, [seqOf(m.id)], "Lesebestätigung der Nachricht Nr. " + seqOf(m.id));
+    }
+    async function playVoice(id) {
+      const m = msgs.get(id);
+      if (!m) return;
+      if (playing && playing.id === id) { playing.audio.pause(); playing = null; render(); return; }
+      if (playing) { playing.audio.pause(); playing = null; }
+      try {
+        let url = urls.get(id);
+        if (!url) {
+          const r = await relayFetch("/" + id + "/audio");
+          if (!r.ok) throw new Error("HTTP " + r.status + (r.status === 404 ? " (Nachricht gelöscht?)" : ""));
+          url = URL.createObjectURL(await r.blob());
+          urls.set(id, url);
+          log("Sprachnachricht " + id + " vom Relay heruntergeladen (WLAN)", "ok");
+        }
+        const a = new Audio(url);
+        playing = { id: id, audio: a };
+        a.onended = async () => {
+          playing = null;
+          render();
+          if (m.from === "page" && !m.heard) {
+            try { const r = await relayFetch("/" + id + "/ack", { method: "POST" }); if (r.ok) put(await r.json()); log("Lesebestätigung gesendet (Nachricht " + id + ")", "ok"); } catch (e) { /* wird beim nächsten Anhören erneut gesendet */ }
+          }
+        };
+        await a.play();
+        render();
+      } catch (e) {
+        playing = null; render();
+        if (e.name === "NotAllowedError") $("notif").textContent = "Chrome blockiert den Ton, solange Sie nicht auf diese Seite geklickt haben: Klicken Sie auf die Wiedergabe-Schaltfläche der Nachricht.";
+        else { log("Wiedergabe nicht möglich: " + e.message, "err"); $("notif").textContent = "Wiedergabe nicht möglich: " + e.message; }
+      }
+    }
+    function onNotify(ev) {
+      let info = {};
+      try { info = JSON.parse(ev.data); } catch (e) { return; }
+      if (!info.id) return;
+      const at = new Date();
+      if (info.kind === "text" && info.text) {
+        const m = { id: info.id, at: at, from: "page", kind: "text", text: info.text, heard: false };
+        put(m);
+        log("Text-Downlink von der Seite empfangen: „" + info.text + "“", "warn");
+        $("notif").textContent = "Text der Seite empfangen um " + hhmm(at) + ": „" + info.text + "“";
+        if ($("c-say").checked) sayText(msgs.get(info.id));
+      } else if (info.kind === "voice") {
+        put({ id: info.id, at: at, from: "page", kind: "voice", duration: info.duration || 0, heard: false });
+        log("Signal „Sprachnachricht“ von der Seite empfangen (Downlink Port 5)", "warn");
+        $("notif").textContent = "Sprachnachricht der Seite empfangen um " + hhmm(at) + ".";
+        if ($("c-say").checked) playVoice(info.id);
+      }
+    }
+    /** Verlauf: Nachrichten des Relays (beide Richtungen); von der Seite nur die, die das Gerät wirklich empfangen hat. */
+    async function history() {
+      try {
+        const r = await relayFetch("?since=0");
+        if (!r.ok) return;
+        for (const h of (await r.json()).messages) {
+          if (h.from === "page" && !(h.delivered || h.heard) && !msgs.has(h.id)) continue;
+          msgs.set(h.id, Object.assign(msgs.get(h.id) || {}, { id: h.id, at: h.at, from: h.from, kind: h.kind === "text" ? "text" : "voice", text: h.text, duration: h.duration, delivered: !!h.delivered, heard: !!h.heard }));
+        }
+        render();
+      } catch (e) { /* Relay nicht erreichbar */ }
+    }
+    function stream() {
+      const es = new EventSource("/api/voice/stream?as=device");   // as=device: Das Relay weiß, dass ein simuliertes Gerät geöffnet ist
+      es.addEventListener("open", () => { setStatus("Relay verbunden: Die Nachrichten der Seite kommen hier an", "ok"); history(); });
+      es.addEventListener("notify", onNotify);
+      es.addEventListener("update", (e) => {   // die Seite hat eine Nachricht empfangen oder angehört: Haken
+        try { const u = JSON.parse(e.data); if (msgs.has(u.id)) put({ id: u.id, delivered: !!u.delivered, heard: !!u.heard }); } catch (err) { /* unlesbar */ }
+      });
+      es.addEventListener("error", () => setStatus("Relay nicht erreichbar: Der Positionsversand an TTN funktioniert, aber die Nachrichten kommen nicht durch", "err"));
+    }
+    if (location.protocol === "file:") setStatus("Öffnen Sie http://localhost:8080/tools/sensor.html, um Nachrichten auszutauschen", "err");
+    else stream();
+    syncMap();
+    render();
+  })();
+  </script>
+</body>
+</html>

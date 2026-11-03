@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GPS-Geräte-Simulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap">
+  <!-- Verwendet das Design der Demo-Seite wieder -->
+  <link rel="stylesheet" href="../web/style.css?v=19">
+  <style>
+    .wrap { max-width: 780px; margin: 0 auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; }
+    .btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .btn-in { background: var(--green); }
+    .btn-out { background: var(--red); }
+    .btn-stop { background: #6b7280; }
+    .coords { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 8px; align-items: center; }
+    .coords input { width: 100%; }
+    #hint403 { border-left: 4px solid #f2c14e; padding-left: 10px; margin-top: 10px; }
+    #hint403[hidden] { display: none; }
+    pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px; white-space: pre-wrap; word-break: break-all; margin: 6px 0 0; font-size: 13px; }
+    .notif { border-left: 4px solid var(--border); padding: 6px 10px; margin: 0 0 10px; font-size: 14px; color: var(--muted); }
+    .notif.got { border-left-color: var(--amber); color: var(--text); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>GPS-Geräte-Simulator</h1>
+    <span id="badge" class="badge badge-off">bereit</span>
+  </header>
+
+  <div class="wrap">
+    <section>
+      <h2>Ziel</h2>
+      <dl>
+        <dt>URL</dt><dd id="i-url" style="font-size:13px"></dd>
+        <dt>Device</dt><dd id="i-dev"></dd>
+        <dt>Zone</dt><dd id="i-zone"></dd>
+      </dl>
+      <p class="hint">Die Zone ist das auf der Demo-Seite definierte Polygon (im Browser gespeichert) oder ersatzweise <code>DEFAULT_ZONE</code> aus <code>web/config.js</code>. „In der Zone“ sendet einen Punkt im Inneren, „außerhalb der Zone“ einen Punkt östlich des Polygons. Öffnen Sie diese Seite unter derselben Adresse wie die Demo-Seite (<code>localhost:8080</code>), um die Zone gemeinsam zu nutzen.</p>
+    </section>
+
+    <section>
+      <h2>Manueller Versand</h2>
+      <div class="btns">
+        <button id="btn-in" class="btn-in" type="button">Position in der Zone</button>
+        <button id="btn-out" class="btn-out" type="button">Position außerhalb der Zone</button>
+      </div>
+      <div class="coords" style="margin-top:12px">
+        <label for="f-lat">Breitengrad</label><input id="f-lat" type="number" step="0.000001" value="48.8566">
+        <label for="f-lng">Längengrad</label><input id="f-lng" type="number" step="0.000001" value="2.3522">
+      </div>
+      <div class="btns"><button id="btn-free" type="button">Diese Koordinaten senden</button></div>
+    </section>
+
+    <section>
+      <h2>Automatische Strecke</h2>
+      <p class="hint">Eine Position alle 5 s, geradlinig von einem Punkt im Inneren zu einem Punkt außerhalb im Osten (11 Positionen: Die Zone wird unterwegs verlassen).</p>
+      <div class="btns">
+        <button id="btn-auto" type="button">Strecke starten</button>
+        <span id="auto-state" class="hint" style="align-self:center"></span>
+      </div>
+    </section>
+
+    <section>
+      <h2>Nachrichten</h2>
+      <p class="hint">Nachrichten (Text und Sprache) testen Sie mit der Seite des simulierten Geräts: <a href="sensor.html"><b>sensor.html</b></a>. Das Gerät hat weder Tastatur noch Bildschirm: Es empfängt die Nachrichten der Seite und sendet nur Sprachnachrichten.</p>
+    </section>
+
+    <section>
+      <h2>Entsprechender PowerShell-Befehl (eine Zeile)</h2>
+      <p class="hint">Ersetzen Sie <code>TA-CLE-API</code> durch Ihren Schlüssel, nur in Ihrem Terminal. Der Befehl sendet die Position aus den obigen Feldern Breitengrad/Längengrad.</p>
+      <pre id="ps-cmd"></pre>
+    </section>
+
+    <section>
+      <h2>Protokoll</h2>
+      <div id="hint403" hidden>
+        <strong>Fehler 403: Der API-Schlüssel hat nicht die nötigen Rechte.</strong><br>
+        Console &gt; Applications &gt; <b>myfirst1</b> &gt; API keys &gt; <b>geofence-web</b> &gt; <i>Edit</i> (oder legen Sie einen neuen Schlüssel an) und haken Sie dann an:<br>
+        • <b>Write uplink application traffic</b> (Recht, einen Uplink zu simulieren: Es fehlt am häufigsten);<br>
+        • und bei Bedarf <b>View devices in application</b> (wenn die API das Gerät nicht findet).<br>
+        Welches davon verlangt wird, konnte in Ihrer Konsole nicht geprüft werden: Beginnen Sie mit dem ersten.
+      </div>
+      <ol id="log"></ol>
+    </section>
+  </div>
+
+  <script src="../web/config.js"></script>
+  <script>
+  (function () {
+    "use strict";
+
+    const $ = (id) => document.getElementById(id);
+    const STEP_MS = 5000;          // Intervall der automatischen Strecke
+    const STEPS = 10;              // 10 Intervalle = 11 Positionen
+    const cfg = window.CONFIG;
+
+    /** Fügt oben im Protokoll eine Zeile mit Zeitstempel hinzu (textContent: keine HTML-Einschleusung). */
+    function log(message, level) {
+      const li = document.createElement("li");
+      const t = document.createElement("span");
+      t.className = "t";
+      t.textContent = new Date().toLocaleTimeString("de-DE");
+      const m = document.createElement("span");
+      m.className = level || "";
+      m.textContent = message;
+      li.append(t, m);
+      $("log").prepend(li);
+    }
+
+    function setBadge(text, kind) {
+      $("badge").textContent = text;
+      $("badge").className = "badge badge-" + (kind || "off");
+    }
+
+    if (!cfg) {
+      setBadge("config.js nicht gefunden", "err");
+      log("../web/config.js fehlt: Legen Sie sie an (siehe web/config.js).", "err");
+      return;
+    }
+
+    // Simulations-URL aus der Konfiguration abgeleitet (gleicher Host wie die Downlink-URL)
+    const SIM_URL = new URL(cfg.DOWNLINK_URL).origin +
+      "/api/v3/as/applications/" + cfg.APP_ID + "/devices/" + cfg.DEVICE_ID + "/up/simulate";
+
+    // ---------- Polygonzone: die von der Demo-Seite gespeicherte (gleicher Ursprung), sonst config.js ----------
+    const ZONE_STORAGE_KEY = "geofence-zone-v1";   // gleicher Schlüssel wie in web/app.js
+
+    function validPoint(a) {
+      return Array.isArray(a) && Number.isFinite(a[0]) && Number.isFinite(a[1]) && Math.abs(a[0]) <= 90 && Math.abs(a[1]) <= 180;
+    }
+
+    function loadZone() {
+      try {
+        const s = JSON.parse(localStorage.getItem(ZONE_STORAGE_KEY) || "null");
+        if (s && Array.isArray(s.points) && s.points.length >= 3 && s.points.every(validPoint)) {
+          return { points: s.points, auto: s.auto !== false, source: "im Browser gespeichert" };
+        }
+      } catch (e) { /* Speicher nicht verfügbar: Wir nutzen config.js */ }
+      if (Array.isArray(cfg.DEFAULT_ZONE) && cfg.DEFAULT_ZONE.length >= 3 && cfg.DEFAULT_ZONE.every(validPoint)) {
+        return { points: cfg.DEFAULT_ZONE, auto: true, source: "config.js (DEFAULT_ZONE)" };
+      }
+      return null;
+    }
+
+    const zone = loadZone();
+    if (!zone) {
+      setBadge("Zone nicht gefunden", "err");
+      log("Keine Zone mit 3 oder mehr Punkten: Definieren Sie sie auf der Demo-Seite oder in DEFAULT_ZONE in web/config.js.", "err");
+      return;
+    }
+
+    /** Ring des Polygons, nach Winkel um die Mitte sortiert (gleiche Regel wie auf der Demo-Seite). */
+    function ringOf(points, auto) {
+      const pts = points.map((a) => ({ lat: a[0], lng: a[1] }));
+      if (!auto || pts.length < 4) return pts;
+      const c = centroidOf(pts), k = Math.cos(c.lat * Math.PI / 180);
+      return pts.slice().sort((a, b) => Math.atan2(a.lat - c.lat, (a.lng - c.lng) * k) - Math.atan2(b.lat - c.lat, (b.lng - c.lng) * k));
+    }
+    function centroidOf(pts) {
+      return { lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length, lng: pts.reduce((s, p) => s + p.lng, 0) / pts.length };
+    }
+    const ring = ringOf(zone.points, zone.auto);
+
+    /** Strahlwurf: wahr, wenn der Punkt im Inneren des Polygons liegt. */
+    function insideZone(p) {
+      let inside = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const a = ring[i], b = ring[j];
+        if ((a.lat > p.lat) !== (b.lat > p.lat) && p.lng < (b.lng - a.lng) * (p.lat - a.lat) / (b.lat - a.lat) + a.lng) inside = !inside;
+      }
+      return inside;
+    }
+
+    /** Ein Punkt im Inneren: die Mitte, falls geeignet, sonst der der Mitte nächste innere Punkt (Raster). */
+    function pointInside() {
+      const c = centroidOf(ring);
+      if (insideZone(c)) return c;
+      const lats = ring.map((p) => p.lat), lngs = ring.map((p) => p.lng);
+      const minLat = Math.min(...lats), maxLat = Math.max(...lats), minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+      let best = null, bestD = Infinity;
+      for (let i = 0; i <= 40; i++) {
+        for (let j = 0; j <= 40; j++) {
+          const p = { lat: minLat + (maxLat - minLat) * i / 40, lng: minLng + (maxLng - minLng) * j / 40 };
+          const d = Math.hypot(p.lat - c.lat, p.lng - c.lng);
+          if (d < bestD && insideZone(p)) { best = p; bestD = d; }
+        }
+      }
+      return best || c;
+    }
+
+    /** Ein Punkt deutlich außerhalb: östlich der Zone, eine halbe Breite hinter ihrem Ostrand. */
+    function pointOutside() {
+      const c = pointInside();
+      const lngs = ring.map((p) => p.lng);
+      const maxLng = Math.max(...lngs), width = maxLng - Math.min(...lngs);
+      return { lat: c.lat, lng: maxLng + Math.max(width * 0.5, 0.002) };
+    }
+
+    const startPoint = pointInside();
+    const endPoint = pointOutside();
+
+    $("i-url").textContent = SIM_URL;
+    $("i-dev").textContent = cfg.APP_ID + " / " + cfg.DEVICE_ID;
+    $("i-zone").textContent = ring.length + " Punkte (" + zone.source + ")";
+    $("f-lat").value = startPoint.lat.toFixed(6);
+    $("f-lng").value = startPoint.lng.toFixed(6);
+
+    // ---------- Kodierung: 8 Byte, lat x1e7 dann lng x1e7, vorzeichenbehaftete Big-Endian-Int32 ----------
+    function encodePayload(lat, lng) {
+      const view = new DataView(new ArrayBuffer(8));
+      view.setInt32(0, Math.round(lat * 1e7), false);   // false = big-endian
+      view.setInt32(4, Math.round(lng * 1e7), false);
+      const bytes = Array.from(new Uint8Array(view.buffer));
+      return {
+        base64: btoa(String.fromCharCode.apply(null, bytes)),
+        hex: bytes.map((b) => b.toString(16).padStart(2, "0")).join("").toUpperCase()
+      };
+    }
+
+    /** Verschiebt einen Punkt um `meters` Meter nach Osten. */
+    function eastOf(p, meters) {
+      return { lat: p.lat, lng: p.lng + meters / (111320 * Math.cos(p.lat * Math.PI / 180)) };
+    }
+
+    function validCoords(lat, lng) {
+      return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+    }
+
+    // ---------- Versand des simulierten Uplinks ----------
+    /** Gibt true zurück, wenn die API mit 2xx geantwortet hat. */
+    async function sendUplink(lat, lng) {
+      if (!validCoords(lat, lng)) { log("Ungültige Koordinaten: " + lat + ", " + lng, "err"); return false; }
+      if (!cfg.API_KEY || cfg.API_KEY === "TA-CLE-API") {
+        log("Der API-Schlüssel ist noch TA-CLE-API: Ersetzen Sie ihn in web/config.js.", "err");
+        setBadge("API-Schlüssel fehlt", "err");
+        return false;
+      }
+      const p = encodePayload(lat, lng);
+      // `settings` ist für TTN Pflicht (sonst 400 „settings: value is required“)
+      const body = { uplink_message: { f_port: 1, frm_payload: p.base64, settings: { data_rate: { lora: { bandwidth: 125000, spreading_factor: 7, coding_rate: "4/5" } }, frequency: "868100000" } } };
+      $("hint403").hidden = true;
+      log("Senden " + lat + ", " + lng + "  (hex " + p.hex + ", base64 " + p.base64 + ")", "");
+
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 15000);
+      try {
+        const r = await fetch(SIM_URL, {
+          method: "POST",
+          headers: { "Authorization": "Bearer " + cfg.API_KEY, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: ctrl.signal
+        });
+        let detail = "";
+        if (!r.ok) { try { detail = " - " + (await r.text()).slice(0, 250); } catch (e) { /* Antworttext unlesbar */ } }
+        log("HTTP " + r.status + " " + r.statusText + detail, r.ok ? "ok" : "err");
+        if (r.ok) { setBadge("letzter Versand OK", "ok"); return true; }
+        setBadge("HTTP " + r.status, "err");
+        if (r.status === 403) $("hint403").hidden = false;
+        else if (r.status === 401) log("401: API-Schlüssel ungültig oder widerrufen.", "warn");
+        else if (r.status === 404) log("404: Prüfen Sie APP_ID, DEVICE_ID und ob das Gerät existiert.", "warn");
+        return false;
+      } catch (e) {
+        if (e.name === "AbortError") log("Keine Antwort nach 15 s.", "err");
+        else log("Anfrage blockiert (wahrscheinlich CORS oder Netzwerk): " + e.message + ". Verwenden Sie den PowerShell-Befehl unten, der nicht CORS unterliegt.", "err");
+        setBadge("Netzwerkfehler", "err");
+        return false;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    // ---------- Manuelle Schaltflächen ----------
+    $("btn-in").addEventListener("click", () => {
+      $("f-lat").value = startPoint.lat.toFixed(6); $("f-lng").value = startPoint.lng.toFixed(6);
+      updatePs();
+      sendUplink(startPoint.lat, startPoint.lng);
+    });
+    $("btn-out").addEventListener("click", () => {
+      $("f-lat").value = endPoint.lat.toFixed(6); $("f-lng").value = endPoint.lng.toFixed(6);
+      updatePs();
+      sendUplink(endPoint.lat, endPoint.lng);
+    });
+    $("btn-free").addEventListener("click", () => {
+      sendUplink(parseFloat($("f-lat").value), parseFloat($("f-lng").value));
+    });
+
+    // ---------- Automatische Strecke ----------
+    let timer = null;
+    let step = 0;
+
+    function stopAuto(reason) {
+      if (timer) { clearInterval(timer); timer = null; }
+      $("btn-auto").textContent = "Strecke starten";
+      $("btn-auto").classList.remove("btn-stop");
+      $("auto-state").textContent = reason || "";
+    }
+
+    async function autoTick() {
+      // Geradlinige Interpolation vom inneren zum äußeren Punkt: Der Rand wird unterwegs überschritten
+      const f = step / STEPS;
+      const p = { lat: startPoint.lat + (endPoint.lat - startPoint.lat) * f, lng: startPoint.lng + (endPoint.lng - startPoint.lng) * f };
+      $("auto-state").textContent = "Position " + (step + 1) + " / " + (STEPS + 1) + " (" + (insideZone(p) ? "in" : "außerhalb") + " der Zone)";
+      const ok = await sendUplink(p.lat, p.lng);
+      if (!ok) { stopAuto("gestoppt: Ein Versand ist fehlgeschlagen"); return; }
+      step++;
+      if (step > STEPS) stopAuto("Strecke beendet");
+    }
+
+    $("btn-auto").addEventListener("click", () => {
+      if (timer) { stopAuto("gestoppt"); return; }
+      step = 0;
+      $("btn-auto").textContent = "Strecke stoppen";
+      $("btn-auto").classList.add("btn-stop");
+      autoTick();                                   // erste Position sofort
+      timer = setInterval(autoTick, STEP_MS);
+    });
+
+    // ---------- PowerShell-Befehl in einer Zeile (mit den Feldern lat/lng aktualisiert) ----------
+    function updatePs() {
+      const lat = parseFloat($("f-lat").value), lng = parseFloat($("f-lng").value);
+      if (!validCoords(lat, lng)) { $("ps-cmd").textContent = "Ungültige Koordinaten."; return; }
+      const b64 = encodePayload(lat, lng).base64;
+      $("ps-cmd").textContent =
+        'Invoke-RestMethod -Method Post -Uri "' + SIM_URL + '" -Headers @{Authorization="Bearer TA-CLE-API"} ' +
+        '-ContentType "application/json" -Body \'{"uplink_message":{"f_port":1,"frm_payload":"' + b64 + '","settings":{"data_rate":{"lora":{"bandwidth":125000,"spreading_factor":7,"coding_rate":"4/5"}},"frequency":"868100000"}}}\'';
+    }
+    $("f-lat").addEventListener("input", updatePs);
+    $("f-lng").addEventListener("input", updatePs);
+    updatePs();
+
+    log("Simulator bereit. Ziel: " + SIM_URL, "");
+  })();
+  </script>
+
+</body>
+</html>

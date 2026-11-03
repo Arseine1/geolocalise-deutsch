@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Geofencing LoRaWAN – Zonenüberwachung</title>
+  <!-- Leaflet 1.9.4 (exakte Version, Integrität geprüft) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous">
+  <!-- Schriftart Outfit (Google Fonts); Ersatz durch die Systemschrift, wenn offline -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="style.css?v=19">
+</head>
+<body>
+  <!-- Alarmbanner (sichtbar, wenn das Gerät außerhalb der Zone ist) -->
+  <div id="alert-banner" role="alert" hidden>🚨 ALARM: Das Gerät hat die Zone VERLASSEN 🚨<span id="alert-sound-hint" class="sound-hint" hidden> · Ton blockiert: auf die Seite klicken</span></div>
+
+  <!-- Grüner Banner, einige Sekunden lang sichtbar, wenn das Gerät in die Zone zurückkehrt -->
+  <div id="return-banner" role="status" hidden>✅ Das Gerät ist in die Zone ZURÜCKGEKEHRT</div>
+
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 2.4"/>
+        <circle cx="12" cy="12" r="3.2" fill="currentColor"/>
+      </svg>
+      <div>
+        <h1>Geofencing LoRaWAN</h1>
+        <p class="subtitle">Zonenüberwachung in Echtzeit · The Things Stack</p>
+      </div>
+    </div>
+    <div class="status-group">
+      <button id="sound-pill" type="button" class="sound-pill sound-off">🔇 Ton aus: hier klicken</button>
+      <span id="mqtt-badge" class="badge badge-off">Datenstrom: Start …</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Karte + Seitenleiste: Die oben angeheftete Karte bleibt in diesem Block und liegt nie über dem Protokoll -->
+    <div class="top">
+    <div class="map-card">
+      <div id="map" aria-label="Karte"></div>
+      <div class="legend" aria-label="Legende">
+        <span><i class="dot dot-sensor"></i>Sensor</span>
+        <span><i class="dot dot-trail"></i>Strecke</span>
+        <span><i class="dot dot-in"></i>In der Zone</span>
+        <span><i class="dot dot-out"></i>Außerhalb der Zone</span>
+        <span><i class="dot dot-unknown"></i>Unbekannt</span>
+      </div>
+    </div>
+
+    <aside>
+      <!-- Hauptanzeigen -->
+      <div class="kpis">
+        <div class="kpi">
+          <span class="kpi-label">Zone</span>
+          <span id="p-zone" class="badge badge-off">UNBEKANNT</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">Abstand zum Rand</span>
+          <span id="p-dist" class="kpi-value">-</span>
+        </div>
+      </div>
+
+      <section>
+        <h2>Gerät</h2>
+        <dl>
+          <dt>Empfang</dt><dd id="p-mqtt">-</dd>
+          <dt>Position</dt><dd id="p-pos" class="num">keine</dd>
+          <dt>Uhrzeit</dt><dd id="p-time">-</dd>
+          <dt>Ort</dt><dd id="p-place">-</dd>
+          <dt>Kreuzung</dt><dd id="p-junction">-</dd>
+          <dt>Downlink</dt><dd id="p-method">keine</dd>
+          <dt>Virtuelle LED</dt><dd class="led-line"><span id="led" class="led"></span><span id="led-text">aus</span></dd>
+        </dl>
+      </section>
+
+      <section>
+        <h2>Strecke des Sensors</h2>
+        <label class="field-label" for="trail-window">Auf der Karte anzuzeigende Positionen</label>
+        <select id="trail-window">
+          <option value="10">Letzte 10 Sekunden</option>
+          <option value="30">Letzte 30 Sekunden</option>
+          <option value="60">Letzte Minute</option>
+          <option value="300">Letzte 5 Minuten</option>
+          <option value="1800">Letzte 30 Minuten</option>
+          <option value="3600">Letzte Stunde</option>
+          <option value="0" selected>Gesamte Strecke</option>
+        </select>
+        <p id="p-trail-info" class="hint trail-info">Keine Position in diesem Zeitraum.</p>
+        <p class="hint">Orange Linie: je neuer, desto deckender. Fahren Sie über einen Punkt, um die Uhrzeit zu sehen; der grüne Punkt ist der Beginn des Zeitraums.</p>
+        <button id="btn-trail-clear" type="button" class="btn-secondary">Strecke löschen</button>
+      </section>
+
+      <section>
+        <h2>Überwachte Zone</h2>
+        <p id="p-zone-info" class="zone-info">-</p>
+        <p id="p-center" class="num center-line"></p>
+        <p id="p-center-place" class="hint"></p>
+
+        <label for="addr-input" class="field-label">Zone aus einer Adresse zeichnen</label>
+        <form id="addr-form" class="addr-form" autocomplete="off">
+          <input id="addr-input" type="text" maxlength="200" placeholder="z. B. Unter den Linden 1, Berlin" spellcheck="false">
+          <button id="btn-addr" type="submit">Suchen</button>
+        </form>
+        <div class="row addr-radius">
+          <label for="addr-radius" class="field-label">Radius der Zone</label>
+          <span class="num-field"><input id="addr-radius" type="number" min="50" max="5000" step="50" value="500"><em>m</em></span>
+        </div>
+        <input id="addr-radius-range" type="range" min="50" max="5000" step="50" value="500" aria-label="Radius der Zone in Metern" style="width:100%">
+        <p id="addr-result" class="hint" aria-live="polite">Geben Sie eine Adresse ein (ohne Koordinaten): Der Punkt wird auf der Karte gesetzt und die Zone darum gezeichnet; danach stellen Sie den Radius ein.</p>
+        <div id="addr-choices" class="addr-choices"></div>
+
+        <div class="btns-row">
+          <button id="btn-edit" type="button">Zone bearbeiten</button>
+          <button id="btn-undo" type="button" class="btn-secondary">Letzten Punkt entfernen</button>
+          <button id="btn-clear" type="button" class="btn-secondary">Alles löschen</button>
+        </div>
+        <p id="edit-hint" class="hint" hidden>Klicken Sie auf die Karte, um einen Punkt hinzuzufügen. Ziehen Sie einen Punkt, um ihn zu verschieben; Rechtsklick löscht ihn. Die Punkte werden zu einem Polygon verbunden (3 Punkte = Dreieck, 4 = Viereck, 5 = Fünfeck …).</p>
+
+        <label for="zone-points" class="field-label">GPS-Punkte (einer pro Zeile: Breitengrad, Längengrad)</label>
+        <textarea id="zone-points" rows="6" spellcheck="false" readonly></textarea>
+        <div class="btns-row">
+          <button id="btn-apply" type="button" class="btn-secondary">Koordinaten übernehmen</button>
+          <button id="btn-reset" type="button" class="btn-secondary">Standardzone</button>
+        </div>
+        <label class="check"><input id="opt-auto-order" type="checkbox" checked><span>Punkte in automatischer Reihenfolge verbinden (vermeidet sich kreuzende Seiten)</span></label>
+        <p class="hint">Die Zone ist gesperrt, solange „Zone bearbeiten“ nicht aktiviert ist. Sie wird in diesem Browser gespeichert.</p>
+      </section>
+
+      <section>
+        <h2>SMS-Alarme</h2>
+        <p id="p-sms-status" class="hint">SMS-Proxy wird geprüft …</p>
+        <span class="field-label">Nummern, die die Alarme erhalten</span>
+        <ul id="sms-numbers" class="sms-numbers"></ul>
+        <form id="sms-add-form" class="addr-form" autocomplete="off">
+          <input id="sms-add-input" type="tel" maxlength="30" placeholder="+49 151 2345 6789" spellcheck="false" aria-label="Neue Telefonnummer">
+          <button id="btn-sms-add" type="submit">Hinzufügen</button>
+        </form>
+        <p id="sms-num-msg" class="hint" aria-live="polite">Landesvorwahl erforderlich (z. B. +33 für Frankreich, +49 für Deutschland). Höchstens 3 Nummern; die Nummer wird auf diesem Computer gespeichert.</p>
+        <label class="check"><input id="opt-sms" type="checkbox" checked><span>SMS „Ihr Patient hat seine Zone gerade verlassen“</span></label>
+        <label class="check"><input id="opt-sms-return" type="checkbox" checked><span>SMS „Ihr Patient ist gerade in seine Zone zurückgekehrt“</span></label>
+        <button id="btn-sms-test" type="button" class="btn-secondary">Test-SMS senden</button>
+        <p id="p-sms-result" class="hint" style="margin-top:10px" aria-live="polite"></p>
+        <p class="hint" style="margin-top:10px">Im Demo-Modus werden SMS nur simuliert (nichts wird gesendet). Der Vonage-Schlüssel und die Nummern bleiben im lokalen Proxy.</p>
+      </section>
+
+      <section id="voice-section">
+        <h2>Sprachnachrichten <span id="voice-badge" class="badge badge-warn" hidden>neu</span></h2>
+        <div class="wa-card">
+          <div class="wa-head">
+            <span class="wa-avatar" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zm0 2.25c-3.2 0-9 1.6-9 4.8V21h18v-1.95c0-3.2-5.8-4.8-9-4.8z"/></svg></span>
+            <div><strong>Patient</strong><p id="voice-status" class="hint">Verbindung zum Sprach-Relay …</p></div>
+          </div>
+          <div id="voice-chat" class="chat" role="log" aria-live="polite" aria-label="Sprachnachrichten"><p class="chat-empty">Keine Nachricht.</p></div>
+          <div id="wa-bar" class="wa-bar">
+            <div id="wa-compose" class="wa-compose">
+              <input id="wa-input" class="wa-input" type="text" maxlength="200" autocomplete="off" spellcheck="true" lang="de" placeholder="Nachricht für das Gerät schreiben" aria-label="Geschriebene Nachricht für das Gerät">
+              <span id="wa-count" class="wa-count">0/49 Byte</span>
+              <button id="btn-talk" type="button" class="wa-dict" disabled aria-label="Text diktieren" title="Text diktieren (Spracherkennung von Chrome)"><svg class="ico" viewBox="0 0 24 24"><path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM4 12h4v2H4v-2zm10 6H4v-2h10v2zm6 0h-4v-2h4v2zm0-4H10v-2h10v2z"/></svg></button>
+            </div>
+            <div id="wa-rec-info" class="wa-rec-info" hidden><span class="wa-dot"></span><span id="voice-timer" class="voice-timer">0:00</span><span id="rec-hint" class="wa-slide"></span><button id="btn-rec-ok" type="button" class="wa-ok">Fertig</button><button id="btn-dict-cancel" type="button" class="wa-cancel">Abbrechen</button></div>
+            <button id="btn-send" type="button" class="talk wa-mic wa-send" hidden disabled aria-label="Text per LoRaWAN senden"><svg class="ico" viewBox="0 0 24 24"><path d="M2.5 20.5 22 12 2.5 3.5l.01 6.6L16 12 2.51 13.9z"/></svg></button>
+            <button id="btn-voice" type="button" class="talk wa-mic" disabled aria-label="Sprachnachricht für das Gerät aufnehmen" title="Sprachnachricht für das Gerät"><svg class="ico" viewBox="0 0 24 24"><path d="M12 14.5a3.5 3.5 0 0 0 3.5-3.5V5.5a3.5 3.5 0 0 0-7 0V11a3.5 3.5 0 0 0 3.5 3.5zm6-3.5a6 6 0 0 1-12 0H4.5a7.5 7.5 0 0 0 6.75 7.46V21h1.5v-2.54A7.5 7.5 0 0 0 19.5 11z"/></svg></button>
+          </div>
+        </div>
+        <p id="voice-msg" class="hint" aria-live="polite">Schreiben Sie eine Nachricht (das Gerät spricht sie laut aus) oder nehmen Sie mit dem grünen Mikrofon eine Sprachnachricht auf.</p>
+        <p class="hint">Zum Gerät: ein <b>Text</b> (höchstens 49 Byte, per LoRaWAN), den das Gerät in Sprache umwandelt, oder eine <b>Sprachnachricht</b> (das Gerät wird per LoRaWAN benachrichtigt und lädt das Audio per WLAN herunter). Das Gerät selbst sendet nur Sprachnachrichten, per WLAN: Es hat weder Tastatur noch Bildschirm.</p>
+        <p class="hint voice-privacy"><svg class="ico" viewBox="0 0 24 24"><path d="M12 1.5 4 5v6c0 5.2 3.4 9.9 8 11.5 4.6-1.6 8-6.3 8-11.5V5l-8-3.5zm3.8 9H15v-1.7a3 3 0 0 0-6 0v1.7h-.8v5.5h7.6V10.5zM10.5 8.8a1.5 1.5 0 0 1 3 0v1.7h-3V8.8z"/></svg><span id="voice-privacy">Eine Stimme ist ein sensibles personenbezogenes Datum. Die Aufnahmen bleiben auf diesem Computer (Ordner data/voice/), werden nach einigen Tagen gelöscht und an keinen Dritten gesendet. <b>Ausnahme: das Diktieren (Schaltfläche „Diktieren“ im Textfeld)</b> nutzt den Spracherkennungsdienst von Chrome, der das Gesagte an Google sendet; um zu 100 % lokal zu bleiben, schreiben Sie mit der Tastatur.</span></p>
+      </section>
+
+      <section>
+        <h2>Optionen</h2>
+        <label class="check"><input id="opt-demo" type="checkbox"><span>Offline-Demo-Modus: Sensor mit der Maus ziehen (oder Pfeiltasten, Umschalt = großer Schritt)</span></label>
+        <label class="check"><input id="opt-return" type="checkbox" checked><span>Rückkehr-Downlink (0x00) bei der Rückkehr senden</span></label>
+        <button id="btn-sound" type="button">Ton aktivieren</button>
+      </section>
+    </aside>
+    </div>
+
+    <section id="log-section">
+      <h2>Protokoll</h2>
+      <ol id="log"></ol>
+    </section>
+  </main>
+
+  <footer>Nur für den lokalen Gebrauch: Der API-Schlüssel in <code>config.js</code> ist in der Seite lesbar. Veröffentlichen Sie diese Seite nicht.</footer>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
+  <!-- MQTT.js 5.10.1 (version exacte, version navigateur) -->
+  <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"
+          integrity="sha384-u4uqeACkFcoKl57rBQJHVGDd1pqhW4w8X3WjTu1ZksPdxoLqdt34jpoNkJisE25W" crossorigin="anonymous"></script>
+  <script src="config.js?v=6"></script>
+  <script src="app.js?v=36"></script>
+</body>
+</html>

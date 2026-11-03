@@ -1,0 +1,16 @@
+# Geheimnisse und rechnerspezifische Dateien: nie veröffentlichen
+web/config.js
+tools/sms-proxy.env
+tools/.sms-counter.json
+
+# Sonstiges
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+
+# Sprachnachrichten (sensibles personenbezogenes Datum), Token des Geräts und Empfängernummern
+data/
+tools/voice.env
+tools/sms-recipients.json
+firmware/heltec_gps_geofence/secrets.h

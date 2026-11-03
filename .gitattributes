@@ -1,0 +1,15 @@
+# Zeilenenden: Die Skripte müssen ihr Format behalten, unabhängig vom System des Benutzers
+*.sh   text eol=lf
+*.js   text eol=lf
+*.bat  text eol=crlf
+*.ps1  text eol=lf
+*.md   text eol=lf
+*.pdf  binary
+*.jpg  binary
+*.png  binary
+*.example text eol=lf
+.gitignore text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.ino text eol=lf
