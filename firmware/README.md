@@ -2,7 +2,7 @@
 
 Sketch: [heltec_gps_geofence/heltec_gps_geofence.ino](heltec_gps_geofence/heltec_gps_geofence.ino)
 
-> **Auf Hardware nicht getestet.** Geschrieben für den Tag, an dem Sie die Platine, das GPS und ein Gateway haben. Nichts wurde kompiliert oder ausgeführt (kein `arduino-cli` auf diesem PC). Nur die Signaturen von RadioLib wurden in dessen Quellcode (Tag 7.8.1) geprüft, und die Pins in der Variante `heltec_wifi_lora_32_V3` von arduino-esp32. Beim Übersetzen in die deutsche Fassung wurden zudem die französischen Bezeichner des Sketches umbenannt (z. B. `TEST_SANS_GPS` heißt jetzt `TEST_OHNE_GPS`, `MESSAGES_VOCAUX` heißt `SPRACHNACHRICHTEN`); auch das ist nie kompiliert worden.
+> **Auf Hardware nicht getestet.** Geschrieben für den Tag, an dem Sie die Platine, das GPS und ein Gateway haben. Auf einer Platine wurde nichts kompiliert oder ausgeführt. Geprüft wurde nur: (1) der Sketch übersetzt mit g++ (`-fsyntax-only -Wall`) gegen selbst geschriebene Attrappen der Bibliotheken ohne Fehler, in allen Varianten (mit und ohne `TEST_OHNE_GPS`, mit und ohne `SPRACHNACHRICHTEN`); das belegt nur, dass die umbenannten Bezeichner untereinander stimmig sind; (2) die Aufrufe `SX1262.begin(...)`, `beginOTAA`, `activateOTAA`, `sendReceive` (beide Formen) und `timeUntilUplink` stimmen mit den echten Headern von RadioLib 7.8.1 überein. Die Bibliotheken TinyGPSPlus, WiFi, HTTPClient und ESP_I2S sowie die Hardware sind weiterhin ungeprüft. Nur die Signaturen von RadioLib wurden in dessen Quellcode (Tag 7.8.1) geprüft, und die Pins in der Variante `heltec_wifi_lora_32_V3` von arduino-esp32. Beim Übersetzen in die deutsche Fassung wurden zudem die französischen Bezeichner des Sketches umbenannt (z. B. `TEST_SANS_GPS` heißt jetzt `TEST_OHNE_GPS`, `MESSAGES_VOCAUX` heißt `SPRACHNACHRICHTEN`); auch das ist nie kompiliert worden.
 
 ## Bibliotheken und Versionen
 
@@ -79,7 +79,7 @@ Vollständige Funktionsweise: [docs/SPRACHNACHRICHTEN.md](../docs/SPRACHNACHRICH
 - Das Mikrofon INMP441 gibt 24 Bit in einem 32-Bit-Wort aus: `STIMME_MIKRO_VERSCHIEBUNG` (14) stellt den Pegel ein und ist nach Gehör anzupassen.
 - Zwei gleichzeitige I2S-Peripheriegeräte auf dem ESP32-S3: vorgesehen, nicht ausprobiert.
 - Gewählte Pins: siehe oben.
-- Die Lesebestätigung nutzt `node.sendReceive(&ack, 1, 3)`: Diese Form des Aufrufs ist aus dem Gedächtnis geschrieben (RadioLib 7.8.1) und beim Kompilieren zu prüfen. Ein während dieses Versands empfangener Downlink wird ignoriert.
+- Die Lesebestätigung nutzt `node.sendReceive(&ack, 1, 3)`: Diese Überladung (`const uint8_t*`, Länge, FPort) existiert laut `LoRaWAN.h` von RadioLib 7.8.1 (Zeile 725, geprüft). Ein während dieses Versands empfangener Downlink wird ignoriert.
 
 ## Unsichere Punkte
 - **TCXO**: `TCXO_VOLTAGE` steht auf 1,8 V. Das ist der Wert, den ich für den des Heltec V3 halte; nicht bestätigt. Schlägt die Funk-Initialisierung fehl, versuchen Sie 1,6, dann 3,0.

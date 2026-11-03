@@ -133,7 +133,7 @@ TinyGPSPlus gps;
 
 #ifdef SPRACHNACHRICHTEN
 I2SClass i2sMikrofon;     // Eingang: Mikrofon INMP441
-I2SClass i2sLautsprecher;   // sortie : amplificateur MAX98357A
+I2SClass i2sLautsprecher;   // Ausgang: Verstärker MAX98357A
 #endif
 
 // ============================================================================
@@ -629,9 +629,9 @@ void loop() {
 
   // Nächster Versand: 30 s, oder später, wenn die Sendezeitbegrenzung (Duty Cycle) es verlangt
   uint32_t erlaubteWartezeit = (uint32_t)node.timeUntilUplink();
-  uint32_t attente = max(SENDEINTERVALL_MS, erlaubteWartezeit);
-  naechsterVersand = millis() + attente;
+  uint32_t wartezeit = max(SENDEINTERVALL_MS, erlaubteWartezeit);
+  naechsterVersand = millis() + wartezeit;
   Serial.print(F("Nächster Versand in "));
-  Serial.print(attente / 1000);
+  Serial.print(wartezeit / 1000);
   Serial.println(F(" s."));
 }
