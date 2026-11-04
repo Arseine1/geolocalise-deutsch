@@ -31,7 +31,19 @@ const VOICE_FILE = path.join(ROOT, "tools", "voice.env");
 const VOICE_EXAMPLE = path.join(ROOT, "tools", "voice.env.example");
 const args = process.argv.slice(2);
 const FORCE = args.includes("--force");
-const AUTO = args.includes("--yes") || !process.stdin.isTTY;   // ohne interaktives Terminal: keine Fragen
+
+// Optionale Datei mit Vorgaben (Schlüssel, Nummern): Ist sie vorhanden, werden keine Fragen gestellt (Prototyp-Installation).
+// Mit „--ask“ lassen sich die Fragen trotzdem stellen. Format: KEY=VALUE, Zeilen mit # sind Kommentare.
+const PRESET_FILE = path.join(ROOT, "voreinstellungen.env");
+const PRESET = {};
+try {
+  fs.readFileSync(PRESET_FILE, "utf8").split(/\r?\n/).forEach((line) => {
+    const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line);
+    if (m && !line.trim().startsWith("#")) PRESET[m[1]] = m[2].replace(/^(['"])(.*)\1$/, "$2");
+  });
+} catch (e) { /* keine Vorgaben-Datei */ }
+const HAS_PRESET = Object.keys(PRESET).length > 0;
+const AUTO = args.includes("--yes") || (HAS_PRESET && !args.includes("--ask")) || !process.stdin.isTTY;   // ohne Terminal oder mit Vorgaben: keine Fragen
 
 if (Number(process.versions.node.split(".")[0]) < 18) {
   console.error("Node.js 18 oder neuer ist erforderlich (Sie haben " + process.version + "). Installieren Sie es von https://nodejs.org");
@@ -62,7 +74,7 @@ async function yesNo(question, def) {
 }
 
 // ---------- Hilfsfunktionen ----------
-const envOr = (name, def) => (process.env[name] !== undefined && process.env[name] !== "" ? process.env[name] : def);
+const envOr = (name, def) => (process.env[name] !== undefined && process.env[name] !== "" ? process.env[name] : PRESET[name] !== undefined && PRESET[name] !== "" ? PRESET[name] : def);
 function setConst(text, name, value) {
   const re = new RegExp("^(const " + name + " = )(\"[^\"]*\"|\\d+)(;)", "m");
   if (!re.test(text)) throw new Error("Zeile „const " + name + "“ in web/config.example.js nicht gefunden");
@@ -83,11 +95,12 @@ function normalizePhone(s) {
 
 (async () => {
   console.log("\n=== Konfigurationsassistent: Geofencing LoRaWAN ===\n");
-  if (AUTO) console.log("(Modus ohne Fragen: Standardwerte oder Umgebungsvariablen)\n");
+  if (AUTO) console.log(HAS_PRESET ? "(Vorgaben aus voreinstellungen.env gefunden: Es werden keine Fragen gestellt.)\n" : "(Modus ohne Fragen: Standardwerte oder Umgebungsvariablen)\n");
 
   // ----- 1. Webseite: The Things Stack -----
   let doConfig = true;
-  if (fs.existsSync(CONFIG) && !FORCE) {
+  const noKeyYet = HAS_PRESET && AUTO && fs.existsSync(CONFIG) && fs.readFileSync(CONFIG, "utf8").includes('"TA-CLE-API"') && Boolean(envOr("TTI_API_KEY", ""));
+  if (fs.existsSync(CONFIG) && !FORCE && !noKeyYet) {
     doConfig = await yesNo("web/config.js existiert schon. Neu erstellen?", false);
     if (!doConfig) console.log("→ web/config.js beibehalten.\n");
   }
@@ -114,14 +127,15 @@ function normalizePhone(s) {
 
   // ----- 2. Vonage-SMS -----
   let doEnv = true;
-  if (fs.existsSync(ENV_FILE) && !FORCE) {
+  const noSmsYet = HAS_PRESET && AUTO && fs.existsSync(ENV_FILE) && !/^VONAGE_API_KEY=\S+/m.test(fs.readFileSync(ENV_FILE, "utf8")) && Boolean(envOr("VONAGE_API_KEY", ""));
+  if (fs.existsSync(ENV_FILE) && !FORCE && !noSmsYet) {
     doEnv = await yesNo("tools/sms-proxy.env existiert schon. Neu erstellen?", false);
     if (!doEnv) console.log("→ tools/sms-proxy.env beibehalten.\n");
   }
   if (doEnv) {
     console.log("2/3  SMS-Alarme (Vonage): optional. Ohne sie werden SMS nur angezeigt (Testmodus).\n");
     let env = fs.readFileSync(ENV_EXAMPLE, "utf8");
-    const wantSms = AUTO ? Boolean(process.env.VONAGE_API_KEY) : await yesNo("SMS jetzt einrichten?", false);
+    const wantSms = AUTO ? Boolean(envOr("VONAGE_API_KEY", "")) : await yesNo("SMS jetzt einrichten?", false);
     if (wantSms) {
       const vk = AUTO ? envOr("VONAGE_API_KEY", "") : await askSecret("Vonage: API key");
       const vs = AUTO ? envOr("VONAGE_API_SECRET", "") : await askSecret("Vonage: API secret");

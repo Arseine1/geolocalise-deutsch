@@ -72,6 +72,9 @@ Die obigen Befehle funktionieren nur, wenn das Repository **öffentlich** ist (e
 - **Beenden**: `Strg+C` im Fenster.
 - **Adresse**: `http://localhost:8080/web/` (der Simulator: `http://localhost:8080/tools/simulate.html`, das simulierte Gerät: `http://localhost:8080/tools/sensor.html`).
 
+## Installation ohne Fragen (Prototyp)
+Liegt im Projektordner eine Datei **`voreinstellungen.env`** (Zeilen `KEY=VALUE`: `TTI_API_KEY`, `VONAGE_API_KEY`, `VONAGE_API_SECRET`, `SMS_FROM`, optional `TTI_HOST`, `APP_ID`, `DEVICE_ID`, `SMS_TO` …), stellt der Konfigurationsassistent **keine Fragen**: Ein Befehl installiert alles, am Ende genügt Enter zum Starten. Die Datei muss echte Schlüssel enthalten, wenn sie funktionieren soll, und gehört daher nur in ein Prototyp-Repository; vor einem echten Einsatz Schlüssel erneuern und die Datei löschen. Mit `node setup.js --ask --force` werden die Fragen trotzdem gestellt. Die Empfängernummer der SMS wird in der Seite unter „SMS-Alarme“ hinzugefügt.
+
 ## Was der Konfigurationsassistent fragt
 Jederzeit mit `node setup.js --force` erneut startbar.
 
