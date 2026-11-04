@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="style.css?v=19">
+  <link rel="stylesheet" href="style.css?v=21">
 </head>
 <body>
   <!-- Alarmbanner (sichtbar, wenn das Gerät außerhalb der Zone ist) -->
@@ -176,6 +176,13 @@
         <label class="check"><input id="opt-demo" type="checkbox"><span>Offline-Demo-Modus: Sensor mit der Maus ziehen (oder Pfeiltasten, Umschalt = großer Schritt)</span></label>
         <label class="check"><input id="opt-return" type="checkbox" checked><span>Rückkehr-Downlink (0x00) bei der Rückkehr senden</span></label>
         <button id="btn-sound" type="button">Ton aktivieren</button>
+      </section>
+
+      <section id="sensor-section">
+        <h2>Sensor-Seite (simuliertes Gerät)</h2>
+        <p class="hint">Die Gerätseite simuliert den Sensor ohne Hardware: Karte mit ziehbarer Markierung, Position per Uplink an TTN senden, Sprachnachrichten an diese Seite aufnehmen und die Nachrichten dieser Seite empfangen.</p>
+        <a class="btn-link" href="../tools/sensor.html" target="_blank" rel="noopener">Sensor-Seite öffnen</a>
+        <p class="hint" style="margin-top:10px">Weitere Werkzeuge: <a href="../tools/simulate.html" target="_blank" rel="noopener">Positions-Simulator</a>. Die Sensor-Seite sendet echte simulierte Uplinks: Demo-Modus hier abwählen, um sie zu empfangen.</p>
       </section>
     </aside>
     </div>

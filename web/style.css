@@ -394,3 +394,9 @@ button.recording { animation: pulse-soft 1s ease-in-out infinite; }
 .wa-rec-info .wa-ok { margin-left: auto; }
 .wa-rec-info .wa-ok + .wa-cancel { margin-left: 0; }
 .wa-rec-info .wa-slide { margin-left: 0; }
+
+/* Link in Schaltflächen-Optik (Sensor-Seite öffnen) */
+.btn-link { display: inline-block; padding: 8px 14px; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 600; text-decoration: none; }
+.btn-link:hover { filter: brightness(1.1); }
+.btn-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hint a { color: #8ab4ff; }
